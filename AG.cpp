@@ -29,7 +29,7 @@ bool verificarCaminhoValido(
     if (custoTotal != NULL) *custoTotal = 0.0;
 
     // checa se origem e destino sao validos e diferentes
-    if (s < 1 || s > n || t < 1 || t > n || s == t) {
+    if (n < 2 || s < 1 || s > n || t < 1 || t > n || s == t) {
         return false;
     }
 
@@ -150,6 +150,16 @@ vector<int> heuristicaSolucaoInicial(
             }
         }
 
+        // fallback de seguranca caso todos os custos restantes sejam infinitos
+        if (melhorProximo == -1) {
+            for (int j = 0; j < n; j++) {
+                if (!visitado[j]) {
+                    melhorProximo = j;
+                    break;
+                }
+            }
+        }
+
         caminho.push_back(melhorProximo);
         visitado[melhorProximo] = true;
         atual = melhorProximo;
@@ -167,7 +177,7 @@ vector<int> heuristicaSolucaoInicial(
 
 
 // ============================================================================
-// ATIVIDADE 2 - Meta-heuristica: Algoritmo Genetico (AG)
+// ATIVIDADE 2 - Meta-heuristica: Algoritmo Genetico (AG Puro)
 // ============================================================================
 
 struct Individuo {
@@ -178,93 +188,6 @@ struct Individuo {
         return custo < outro.custo;
     }
 };
-
-
-// Refinamento rápido por vizinhanca (Swap e Realocacao de vertice intermediario)
-// Calcula apenas a diferenca de arcos afetados em O(1) para acelerar a convergencia do AG
-void refinarIndividuo(Individuo& ind, const vector<vector<double>>& c) {
-    int n = (int)ind.caminho.size();
-    if (n <= 4) return;
-
-    bool melhorou = true;
-    while (melhorou) {
-        melhorou = false;
-
-        // 1) Tenta trocar dois vertices intermediarios (Swap)
-        for (int i = 1; i <= n - 3; i++) {
-            for (int j = i + 1; j <= n - 2; j++) {
-                int u_ant = ind.caminho[i - 1];
-                int u = ind.caminho[i];
-                int u_prox = ind.caminho[i + 1];
-
-                int v_ant = ind.caminho[j - 1];
-                int v = ind.caminho[j];
-                int v_prox = ind.caminho[j + 1];
-
-                double delta = 0.0;
-                if (j == i + 1) {
-                    // vertices adjacentes: u_ant -> u -> v -> v_prox  vira  u_ant -> v -> u -> v_prox
-                    double antes = c[u_ant][u] + c[u][v] + c[v][v_prox];
-                    double depois = c[u_ant][v] + c[v][u] + c[u][v_prox];
-                    delta = depois - antes;
-                } else {
-                    double antes = c[u_ant][u] + c[u][u_prox] + c[v_ant][v] + c[v][v_prox];
-                    double depois = c[u_ant][v] + c[v][u_prox] + c[v_ant][u] + c[u][v_prox];
-                    delta = depois - antes;
-                }
-
-                if (delta < -1e-9) {
-                    swap(ind.caminho[i], ind.caminho[j]);
-                    ind.custo += delta;
-                    melhorou = true;
-                }
-            }
-        }
-
-        // 2) Tenta remover um vertice intermediario da posicao i e inserir na posicao j (Insertion/Shift)
-        for (int i = 1; i <= n - 2; i++) {
-            int v = ind.caminho[i];
-            int ant_i = ind.caminho[i - 1];
-            int prox_i = ind.caminho[i + 1];
-
-            // ganho ao tirar v de entre ant_i e prox_i
-            double deltaRetirada = c[ant_i][prox_i] - (c[ant_i][v] + c[v][prox_i]);
-
-            int melhorPos = -1;
-            double melhorDelta = -1e-9;
-
-            for (int j = 1; j <= n - 2; j++) {
-                if (j == i) continue;
-
-                // se inserir antes de j (quando j < i) ou depois de j (quando j > i)
-                int a, b;
-                if (j < i) {
-                    a = ind.caminho[j - 1];
-                    b = ind.caminho[j];
-                } else {
-                    a = ind.caminho[j];
-                    b = ind.caminho[j + 1];
-                }
-
-                double deltaInsercao = (c[a][v] + c[v][b]) - c[a][b];
-                double deltaTotal = deltaRetirada + deltaInsercao;
-
-                if (deltaTotal < melhorDelta) {
-                    melhorDelta = deltaTotal;
-                    melhorPos = j;
-                }
-            }
-
-            if (melhorPos != -1) {
-                int vert = ind.caminho[i];
-                ind.caminho.erase(ind.caminho.begin() + i);
-                ind.caminho.insert(ind.caminho.begin() + melhorPos, vert);
-                ind.custo += melhorDelta;
-                melhorou = true;
-            }
-        }
-    }
-}
 
 
 // Gera a populacao inicial combinando a solucao da heuristica inicial (Atv 1),
@@ -284,6 +207,14 @@ vector<Individuo> gerarPopulacaoInicial(
     populacao[0].caminho = caminhoInicial;
     populacao[0].custo = calcularCustoCaminho(caminhoInicial, c);
 
+    // Se n <= 3, existe apenas 1 caminho hamiltoniano possivel de s ate t
+    if (n <= 3) {
+        for (int k = 1; k < tamPopulacao; k++) {
+            populacao[k] = populacao[0];
+        }
+        return populacao;
+    }
+
     // Lista base com os vertices intermediarios para gerar permutacoes
     vector<int> baseIntermediarios;
     baseIntermediarios.reserve(n - 2);
@@ -296,8 +227,8 @@ vector<Individuo> gerarPopulacaoInicial(
     uniform_int_distribution<int> distPos(1, n - 2);
 
     for (int k = 1; k < tamPopulacao; k++) {
-        if (k < tamPopulacao / 4 && n > 4) {
-            // 25% iniciais: perturbacoes da solucao inicial gulosa (troca alguns pares)
+        if (k < tamPopulacao / 3) {
+            // Parte inicial da populacao: pequenas perturbacoes da solucao inicial gulosa
             populacao[k].caminho = caminhoInicial;
             int qtdTrocas = 1 + (k % 3);
             for (int r = 0; r < qtdTrocas; r++) {
@@ -306,7 +237,7 @@ vector<Individuo> gerarPopulacaoInicial(
                 swap(populacao[k].caminho[p1], populacao[k].caminho[p2]);
             }
         } else {
-            // restante da populacao: permutacoes totalmente aleatorias dos vertices intermediarios
+            // Restante da populacao: permutacoes aleatorias dos vertices intermediarios
             shuffle(baseIntermediarios.begin(), baseIntermediarios.end(), rng);
             populacao[k].caminho.resize(n);
             populacao[k].caminho[0] = s;
@@ -338,7 +269,10 @@ int selecaoTorneio(const vector<Individuo>& populacao, int tamTorneio, mt19937& 
 }
 
 
-// Operador de Cruzamento OX (Order Crossover) adaptado para manter s no inicio e t no fim
+// Operador de Cruzamento OX Classico (Order Crossover) nos n - 2 vertices intermediarios
+// Mantem s fixo na posicao 0 e t fixo na posicao n - 1.
+// Copia a fatia [corte1..corte2] do pai1 e preenche o restante circularmente a partir de corte2 + 1
+// seguindo a ordem dos vertices no pai2 (tambem lidos circularmente a partir de corte2 + 1).
 Individuo cruzamentoOX(
     const Individuo& pai1,
     const Individuo& pai2,
@@ -348,17 +282,16 @@ Individuo cruzamentoOX(
     const vector<vector<double>>& c,
     mt19937& rng
 ) {
+    if (n <= 3) {
+        return pai1;
+    }
+
     Individuo filho;
     filho.caminho.assign(n, -1);
     filho.caminho[0] = s;
     filho.caminho[n - 1] = t;
 
-    if (n <= 3) {
-        filho.caminho = pai1.caminho;
-        filho.custo = pai1.custo;
-        return filho;
-    }
-
+    int numInterm = n - 2; // posicoes intermediarias: indices 1 ate n - 2
     uniform_int_distribution<int> distCorte(1, n - 2);
     int corte1 = distCorte(rng);
     int corte2 = distCorte(rng);
@@ -375,17 +308,18 @@ Individuo cruzamentoOX(
         jaUsado[v] = true;
     }
 
-    // 2. Preenche as demais posicoes intermediarias na ordem em que aparecem no pai2
-    int posFilho = 1;
-    for (int i = 1; i <= n - 2; i++) {
-        int v = pai2.caminho[i];
+    // 2. Percorre o pai2 circularmente a partir de (corte2 + 1) e preenche o filho circularmente
+    int posEscrita = 1 + (corte2 % numInterm);
+    for (int k = 0; k < numInterm; k++) {
+        int posLeitura = 1 + ((corte2 + k) % numInterm);
+        int v = pai2.caminho[posLeitura];
         if (!jaUsado[v]) {
-            while (posFilho >= corte1 && posFilho <= corte2) {
-                posFilho++;
+            while (posEscrita >= corte1 && posEscrita <= corte2) {
+                posEscrita = 1 + (posEscrita % numInterm);
             }
-            filho.caminho[posFilho] = v;
+            filho.caminho[posEscrita] = v;
             jaUsado[v] = true;
-            posFilho++;
+            posEscrita = 1 + (posEscrita % numInterm);
         }
     }
 
@@ -394,7 +328,8 @@ Individuo cruzamentoOX(
 }
 
 
-// Operador de Mutacao: aplica troca (Swap), inversao de trecho (2-opt) ou deslocamento (Shift)
+// Operador de Mutacao: aplica um movimento aleatorio nos vertices intermediarios
+// (Swap, Inversao de trecho, Insercao de vertice ou Deslocamento de bloco)
 void aplicarMutacao(
     Individuo& ind,
     const vector<vector<double>>& c,
@@ -402,7 +337,7 @@ void aplicarMutacao(
     mt19937& rng
 ) {
     int n = (int)ind.caminho.size();
-    if (n <= 4) return;
+    if (n <= 3) return;
 
     uniform_real_distribution<double> distProb(0.0, 1.0);
     if (distProb(rng) >= taxaMutacao) {
@@ -410,34 +345,46 @@ void aplicarMutacao(
     }
 
     uniform_int_distribution<int> distPos(1, n - 2);
-    uniform_int_distribution<int> distTipo(0, 2);
+    uniform_int_distribution<int> distTipo(0, 3);
 
-    int i = distPos(rng);
-    int j = distPos(rng);
-    while (i == j) {
-        j = distPos(rng);
-    }
+    int numMutacoes = (distProb(rng) < 0.35) ? 2 : 1;
+    for (int m = 0; m < numMutacoes; m++) {
+        int i = distPos(rng);
+        int j = distPos(rng);
+        while (i == j) {
+            j = distPos(rng);
+        }
 
-    int tipo = distTipo(rng);
-    if (tipo == 0) {
-        // Mutacao Swap: troca dois vertices intermediarios de posicao
-        swap(ind.caminho[i], ind.caminho[j]);
-    } else if (tipo == 1) {
-        // Mutacao Inversao (2-opt): inverte a sub-sequencia entre i e j
-        if (i > j) swap(i, j);
-        reverse(ind.caminho.begin() + i, ind.caminho.begin() + j + 1);
-    } else {
-        // Mutacao Insercao (Shift): retira o vertice da posicao i e insere na posicao j
-        int vert = ind.caminho[i];
-        ind.caminho.erase(ind.caminho.begin() + i);
-        ind.caminho.insert(ind.caminho.begin() + j, vert);
+        int tipo = distTipo(rng);
+        if (tipo == 0) {
+            // Mutacao por Troca (Swap): troca dois vertices intermediarios de posicao
+            swap(ind.caminho[i], ind.caminho[j]);
+        } else if (tipo == 1) {
+            // Mutacao por Inversao: inverte a sub-sequencia entre i e j
+            if (i > j) swap(i, j);
+            reverse(ind.caminho.begin() + i, ind.caminho.begin() + j + 1);
+        } else if (tipo == 2) {
+            // Mutacao por Insercao: retira o vertice da posicao i e insere na posicao j
+            int vert = ind.caminho[i];
+            ind.caminho.erase(ind.caminho.begin() + i);
+            ind.caminho.insert(ind.caminho.begin() + j, vert);
+        } else {
+            // Mutacao por Deslocamento de Bloco: move um pequeno sub-caminho para outra posicao
+            if (i > j) swap(i, j);
+            int tamBloco = min(j - i + 1, max(1, (n - 2) / 5));
+            vector<int> bloco(ind.caminho.begin() + i, ind.caminho.begin() + i + tamBloco);
+            ind.caminho.erase(ind.caminho.begin() + i, ind.caminho.begin() + i + tamBloco);
+            uniform_int_distribution<int> distNovaPos(1, (int)ind.caminho.size() - 1);
+            int novaPos = distNovaPos(rng);
+            ind.caminho.insert(ind.caminho.begin() + novaPos, bloco.begin(), bloco.end());
+        }
     }
 
     ind.custo = calcularCustoCaminho(ind.caminho, c);
 }
 
 
-// Executa o Algoritmo Genetico completo e retorna o melhor individuo encontrado
+// Executa o Algoritmo Genetico puro e retorna o melhor individuo encontrado
 Individuo executarAlgoritmoGenetico(
     int n,
     int s,
@@ -445,13 +392,20 @@ Individuo executarAlgoritmoGenetico(
     const vector<vector<double>>& c,
     const vector<int>& caminhoInicial
 ) {
+    if (n <= 3) {
+        Individuo unico;
+        unico.caminho = caminhoInicial;
+        unico.custo = calcularCustoCaminho(caminhoInicial, c);
+        return unico;
+    }
+
     // Parametros do Algoritmo Genetico
-    const int tamPopulacao = 100;
-    const int numGeracoes = 250;
+    const int tamPopulacao = 300;
+    const int numGeracoes = 2000;
     const int tamTorneio = 3;
-    const int numElites = 5;
-    const double taxaCruzamento = 0.90;
-    const double taxaMutacao = 0.30;
+    const int numElites = 10;
+    const double taxaCruzamento = 0.85;
+    const double taxaMutacao = 0.40;
 
     // Semente fixa para reprodutibilidade dos experimentos
     mt19937 rng(42);
@@ -462,15 +416,8 @@ Individuo executarAlgoritmoGenetico(
         tamPopulacao, n, s, t, c, caminhoInicial, rng
     );
 
-    // Refina os primeiros individuos da populacao inicial
-    for (int i = 0; i < min(10, tamPopulacao); i++) {
-        refinarIndividuo(populacao[i], c);
-    }
-
     sort(populacao.begin(), populacao.end());
     Individuo melhorGlobal = populacao[0];
-
-    int geracoesSemMelhora = 0;
 
     // 2. Loop evolutivo ao longo das geracoes
     for (int ger = 0; ger < numGeracoes; ger++) {
@@ -495,41 +442,14 @@ Individuo executarAlgoritmoGenetico(
             }
 
             aplicarMutacao(filho, c, taxaMutacao, rng);
-
-            // Aplica refinamento local em uma pequena fracao dos filhos gerados
-            if (distProb(rng) < 0.15) {
-                refinarIndividuo(filho, c);
-            }
-
-            novaPopulacao.push_back(filho);
+            novaPopulacao.push_back(move(filho));
         }
 
         populacao = move(novaPopulacao);
         sort(populacao.begin(), populacao.end());
 
-        // Refina o melhor da geracao caso ainda nao tenha sido refinado
-        refinarIndividuo(populacao[0], c);
-
         if (populacao[0].custo < melhorGlobal.custo - 1e-9) {
             melhorGlobal = populacao[0];
-            geracoesSemMelhora = 0;
-        } else {
-            geracoesSemMelhora++;
-        }
-
-        // Se estagnar por muitas geracoes, aplica diversificacao na metade final da populacao
-        if (geracoesSemMelhora >= 40 && n > 4) {
-            for (int k = tamPopulacao / 2; k < tamPopulacao; k++) {
-                populacao[k] = melhorGlobal;
-                aplicarMutacao(populacao[k], c, 1.0, rng);
-                aplicarMutacao(populacao[k], c, 1.0, rng);
-                refinarIndividuo(populacao[k], c);
-            }
-            sort(populacao.begin(), populacao.end());
-            if (populacao[0].custo < melhorGlobal.custo - 1e-9) {
-                melhorGlobal = populacao[0];
-            }
-            geracoesSemMelhora = 0;
         }
     }
 
@@ -546,44 +466,66 @@ struct ResultadoInstancia {
     bool validoInicial;
     double custoAG;
     double tempoAGSeg;
+    double tempoTotalSeg;
     bool validoAG;
     double custoPLI;
+    double gapPLIPct;
     double tempoPLISeg;
+    string statusPLI;
+    double otimoConhecido;
     string caminhoAGStr;
 };
 
 
-// Dados do Modelo de Programacao Linear Inteira (PLI) obtidos no Trabalho Pratico 01
+// Dados do Modelo de Programacao Linear Inteira (PLI - limite de 180s) obtidos no TP 01
+// (arquivo TP_01/forma_2_python_mip/resultados_instancias.csv)
 struct ReferenciaPLI {
     const char* nome;
     double custoPLI;
+    double gapPLIPct;
     double tempoPLI;
+    const char* statusPLI;
+    double otimoConhecido;
 };
 
 const ReferenciaPLI tabelaPLI_TP01[] = {
-    {"br17.atsp",  34.00,    2.4600},
-    {"ft53.atsp",  6285.00, 30.0314},
-    {"ft70.atsp",  37655.00, 3.8808},
-    {"ftv33.atsp", 1275.00,  0.9750},
-    {"ftv35.atsp", 1443.00,  1.0503},
-    {"ftv38.atsp", 1511.00,  2.5711},
-    {"ftv44.atsp", 1614.00,  1.5993},
-    {"ftv47.atsp", 1754.00, 14.9615},
-    {"ftv55.atsp", 1613.00, 13.6118},
-    {"ftv64.atsp", 1840.00, 18.6618},
-    {"ftv70.atsp", 1958.00, 21.6551},
-    {"p43.atsp",   610.00,  30.0297},
-    {"ry48p.atsp", 14070.00, 23.5729}
+    {"br17.atsp",  34.00,    0.00,   4.6173, "Otimo",           34.00},
+    {"ft53.atsp",  6196.00,  0.00, 151.8679, "Otimo",           6196.00},
+    {"ft70.atsp",  37655.00, 0.00,  14.0403, "Otimo",           37655.00},
+    {"ftv33.atsp", 1275.00,  0.00,   2.6630, "Otimo",           1275.00},
+    {"ftv35.atsp", 1443.00,  0.00,   3.4843, "Otimo",           1443.00},
+    {"ftv38.atsp", 1511.00,  0.00,   7.9439, "Otimo",           1511.00},
+    {"ftv44.atsp", 1614.00,  0.00,   5.3960, "Otimo",           1614.00},
+    {"ftv47.atsp", 1754.00,  0.00,  40.6367, "Otimo",           1754.00},
+    {"ftv55.atsp", 1613.00,  0.00,  20.0317, "Otimo",           1613.00},
+    {"ftv64.atsp", 1840.00,  0.00,  59.1119, "Otimo",           1840.00},
+    {"ftv70.atsp", 1958.00,  0.00,  67.8304, "Otimo",           1958.00},
+    {"p43.atsp",   610.00,  10.98, 180.1078, "Limite de Tempo", 589.00},
+    {"ry48p.atsp", 14070.00, 0.01,  94.7955, "Otimo",           14070.00}
 };
 
-void buscarReferenciaPLI(const string& nomeArq, double* custoPLI, double* tempoPLI) {
+void buscarReferenciaPLI(
+    const string& nomeArq,
+    double* custoPLI,
+    double* gapPLIPct,
+    double* tempoPLI,
+    string* statusPLI,
+    double* otimoConhecido
+) {
     *custoPLI = 0.0;
+    *gapPLIPct = 0.0;
     *tempoPLI = 0.0;
+    *statusPLI = "N/A";
+    *otimoConhecido = 0.0;
+
     int total = sizeof(tabelaPLI_TP01) / sizeof(tabelaPLI_TP01[0]);
     for (int i = 0; i < total; i++) {
         if (nomeArq == tabelaPLI_TP01[i].nome) {
             *custoPLI = tabelaPLI_TP01[i].custoPLI;
+            *gapPLIPct = tabelaPLI_TP01[i].gapPLIPct;
             *tempoPLI = tabelaPLI_TP01[i].tempoPLI;
+            *statusPLI = tabelaPLI_TP01[i].statusPLI;
+            *otimoConhecido = tabelaPLI_TP01[i].otimoConhecido;
             return;
         }
     }
@@ -610,9 +552,9 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
 
     int n = 0;
     vector<vector<double>> c;
-    if (readATSPFile(pFile, &n, c) != 0) {
+    if (readATSPFile(pFile, &n, c) != 0 || n < 2) {
         fclose(pFile);
-        printf("Erro ao ler arquivo: %s\n", caminhoArquivo);
+        printf("Erro ao ler arquivo ou dimensao invalida: %s\n", caminhoArquivo);
         return -1;
     }
     fclose(pFile);
@@ -627,10 +569,10 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
     printf("------------------------------------------------------------\n");
 
     // 1. Executa a Heuristica Inicial (Atividade 1)
-    auto iniHeur = chrono::high_resolution_clock::now();
+    auto iniHeur = chrono::steady_clock::now();
     double custoInicial = 0.0;
     vector<int> caminhoInicial = heuristicaSolucaoInicial(n, s, t, c, &custoInicial);
-    auto fimHeur = chrono::high_resolution_clock::now();
+    auto fimHeur = chrono::steady_clock::now();
     double tempoInicial = chrono::duration<double>(fimHeur - iniHeur).count();
 
     vector<pair<int, int>> arcosIniciais = converterCaminhoParaArcos(caminhoInicial);
@@ -646,18 +588,20 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
     }
     printf("\nVerificacao Q1: %s (Custo = %.2f)\n\n", validoIni ? "Caminho Valido" : "Invalido", custoVerifIni);
 
-    // 2. Executa o Algoritmo Genetico (Atividade 2)
-    auto iniAG = chrono::high_resolution_clock::now();
+    // 2. Executa o Algoritmo Genetico Puro (Atividade 2)
+    auto iniAG = chrono::steady_clock::now();
     Individuo melhorAG = executarAlgoritmoGenetico(n, s, t, c, caminhoInicial);
-    auto fimAG = chrono::high_resolution_clock::now();
+    auto fimAG = chrono::steady_clock::now();
     double tempoAG = chrono::duration<double>(fimAG - iniAG).count();
+    double tempoTotal = tempoInicial + tempoAG;
 
     vector<pair<int, int>> arcosAG = converterCaminhoParaArcos(melhorAG.caminho);
     double custoVerifAG = 0.0;
     bool validoAG = verificarCaminhoValido(arcosAG, n, s + 1, t + 1, c, &custoVerifAG);
 
     printf("[Atividade 2 - Meta-heuristica: Algoritmo Genetico]\n");
-    printf("Valor Objetivo: %.2f | Tempo: %.4f s\n", melhorAG.custo, tempoAG);
+    printf("Valor Objetivo: %.2f | Tempo AG: %.4f s | Tempo Total: %.4f s\n",
+           melhorAG.custo, tempoAG, tempoTotal);
     printf("Caminho AG: ");
     string caminhoStr = "";
     for (size_t i = 0; i < melhorAG.caminho.size(); i++) {
@@ -671,6 +615,14 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
     printf("\nVerificacao Q1: %s (Custo = %.2f)\n\n", validoAG ? "Caminho Valido" : "Invalido", custoVerifAG);
     fflush(stdout);
 
+    // Checagem de integridade: caminho invalido ou custo divergente interrompe com erro
+    if (!validoIni || !validoAG ||
+        fabs(custoInicial - custoVerifIni) > 1e-6 ||
+        fabs(melhorAG.custo - custoVerifAG) > 1e-6) {
+        fprintf(stderr, "Erro de validacao na instancia %s!\n", nomeBase.c_str());
+        return -1;
+    }
+
     if (resOut != NULL) {
         resOut->nome = nomeBase;
         resOut->n = n;
@@ -679,8 +631,16 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
         resOut->validoInicial = validoIni;
         resOut->custoAG = melhorAG.custo;
         resOut->tempoAGSeg = tempoAG;
+        resOut->tempoTotalSeg = tempoTotal;
         resOut->validoAG = validoAG;
-        buscarReferenciaPLI(nomeBase, &resOut->custoPLI, &resOut->tempoPLISeg);
+        buscarReferenciaPLI(
+            nomeBase,
+            &resOut->custoPLI,
+            &resOut->gapPLIPct,
+            &resOut->tempoPLISeg,
+            &resOut->statusPLI,
+            &resOut->otimoConhecido
+        );
         resOut->caminhoAGStr = caminhoStr;
     }
 
@@ -691,19 +651,19 @@ int resolverArquivoInstancia(const char* caminhoArquivo, ResultadoInstancia* res
 int main(int argc, char* argv[]) {
     if (argc >= 2) {
         if (resolverArquivoInstancia(argv[1]) != 0) {
-            printf("Nao foi possivel abrir o arquivo: %s\n", argv[1]);
+            printf("Nao foi possivel processar o arquivo: %s\n", argv[1]);
             return 1;
         }
         return 0;
     }
 
     const char* prefixos[] = {
+        "instancias/Completos e Assimetricos nos Arcos/",
         "../Implementacao/instancias/Completos e Assimetricos nos Arcos/",
         "../../Implementacao/instancias/Completos e Assimetricos nos Arcos/",
         "Implementacao/instancias/Completos e Assimetricos nos Arcos/",
         "../TP_01/instancias/Completos e Assimetricos nos Arcos/",
-        "TP_01/instancias/Completos e Assimetricos nos Arcos/",
-        "instancias/Completos e Assimetricos nos Arcos/"
+        "TP_01/instancias/Completos e Assimetricos nos Arcos/"
     };
 
     const char* nomesInstancias[] = {
@@ -733,22 +693,30 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < totalInstancias; i++) {
         string caminhoCompleto = pastaEncontrada + nomesInstancias[i];
         ResultadoInstancia res;
-        if (resolverArquivoInstancia(caminhoCompleto.c_str(), &res) == 0) {
-            resultados.push_back(res);
+        if (resolverArquivoInstancia(caminhoCompleto.c_str(), &res) != 0) {
+            fprintf(stderr, "Falha ao processar a instancia obrigatoria: %s\n", caminhoCompleto.c_str());
+            return 1;
         }
+        resultados.push_back(res);
+    }
+
+    if ((int)resultados.size() != totalInstancias) {
+        fprintf(stderr, "Erro: nem todas as %d instancias foram processadas.\n", totalInstancias);
+        return 1;
     }
 
     // Imprime tabela comparativa final (Heuristica Inicial vs Algoritmo Genetico vs PLI TP_01)
-    printf("============================================================================================================\n");
-    printf("RESUMO COMPARATIVO: HEURISTICA INICIAL vs ALGORITMO GENETICO vs PLI (TP 01)\n");
-    printf("============================================================================================================\n");
-    printf("%-11s | %3s | %10s | %10s | %10s | %9s | %10s | %9s | %8s\n",
-           "Instancia", "n", "Heur. Ini", "Tempo Ini", "Alg. Gen.", "Tempo AG", "PLI (TP01)", "Tempo PLI", "Valido");
-    printf("------------------------------------------------------------------------------------------------------------\n");
+    printf("========================================================================================================================\n");
+    printf("RESUMO COMPARATIVO: HEURISTICA INICIAL vs ALGORITMO GENETICO vs PLI (TP 01 - Limite 180s)\n");
+    printf("========================================================================================================================\n");
+    printf("%-11s | %3s | %10s | %10s | %10s | %9s | %10s | %9s | %8s | %7s\n",
+           "Instancia", "n", "Heur. Ini", "Tempo Ini", "Alg. Gen.", "Tempo AG", "PLI (TP01)", "Tempo PLI", "Gap Otim", "Valido");
+    printf("------------------------------------------------------------------------------------------------------------------------\n");
 
     for (size_t i = 0; i < resultados.size(); i++) {
         const ResultadoInstancia& r = resultados[i];
-        printf("%-11s | %3d | %10.2f | %8.6fs | %10.2f | %8.4fs | %10.2f | %8.4fs | %8s\n",
+        double gapOtimo = (r.otimoConhecido > 0) ? 100.0 * (r.custoAG - r.otimoConhecido) / r.otimoConhecido : 0.0;
+        printf("%-11s | %3d | %10.2f | %8.6fs | %10.2f | %8.4fs | %10.2f | %8.4fs | %7.2f%% | %7s\n",
                r.nome.c_str(),
                r.n,
                r.custoInicial,
@@ -757,34 +725,44 @@ int main(int argc, char* argv[]) {
                r.tempoAGSeg,
                r.custoPLI,
                r.tempoPLISeg,
+               gapOtimo,
                (r.validoInicial && r.validoAG) ? "Sim" : "Nao");
     }
-    printf("============================================================================================================\n");
+    printf("========================================================================================================================\n");
 
     // Salva CSV com os resultados para facilitar a analise depois
     FILE* fCsv = fopen("resultados_tp02.csv", "w");
-    if (fCsv != NULL) {
-        fprintf(fCsv, "instancia,n,custo_heuristica_inicial,tempo_inicial_s,custo_ag,tempo_ag_s,custo_pli_tp01,tempo_pli_tp01_s,melhoria_ag_vs_inicial_pct,gap_ag_vs_pli_pct,caminho_valido,caminho_ag\n");
-        for (size_t i = 0; i < resultados.size(); i++) {
-            const ResultadoInstancia& r = resultados[i];
-            double melhoriaIni = (r.custoInicial > 0) ? 100.0 * (r.custoInicial - r.custoAG) / r.custoInicial : 0.0;
-            double gapPLI = (r.custoPLI > 0) ? 100.0 * (r.custoAG - r.custoPLI) / r.custoPLI : 0.0;
-            fprintf(fCsv, "%s,%d,%.2f,%.6f,%.2f,%.4f,%.2f,%.4f,%.2f,%.2f,%s,%s\n",
-                    r.nome.c_str(),
-                    r.n,
-                    r.custoInicial,
-                    r.tempoInicialSeg,
-                    r.custoAG,
-                    r.tempoAGSeg,
-                    r.custoPLI,
-                    r.tempoPLISeg,
-                    melhoriaIni,
-                    gapPLI,
-                    (r.validoInicial && r.validoAG) ? "Sim" : "Nao",
-                    r.caminhoAGStr.c_str());
-        }
-        fclose(fCsv);
+    if (fCsv == NULL) {
+        fprintf(stderr, "Erro ao criar arquivo resultados_tp02.csv\n");
+        return 1;
     }
+
+    fprintf(fCsv, "instancia,n,custo_heuristica_inicial,tempo_inicial_s,custo_ag,tempo_ag_s,tempo_total_s,custo_pli_tp01,gap_pli_tp01_pct,tempo_pli_tp01_s,status_pli_tp01,otimo_conhecido,melhoria_ag_vs_inicial_pct,desvio_ag_vs_pli_pct,gap_ag_vs_otimo_pct,caminho_valido,caminho_ag\n");
+    for (size_t i = 0; i < resultados.size(); i++) {
+        const ResultadoInstancia& r = resultados[i];
+        double melhoriaIni = (r.custoInicial > 0) ? 100.0 * (r.custoInicial - r.custoAG) / r.custoInicial : 0.0;
+        double desvioPLI = (r.custoPLI > 0) ? 100.0 * (r.custoAG - r.custoPLI) / r.custoPLI : 0.0;
+        double gapOtimo = (r.otimoConhecido > 0) ? 100.0 * (r.custoAG - r.otimoConhecido) / r.otimoConhecido : 0.0;
+        fprintf(fCsv, "%s,%d,%.2f,%.6f,%.2f,%.4f,%.4f,%.2f,%.2f,%.4f,%s,%.2f,%.2f,%.2f,%.2f,%s,%s\n",
+                r.nome.c_str(),
+                r.n,
+                r.custoInicial,
+                r.tempoInicialSeg,
+                r.custoAG,
+                r.tempoAGSeg,
+                r.tempoTotalSeg,
+                r.custoPLI,
+                r.gapPLIPct,
+                r.tempoPLISeg,
+                r.statusPLI.c_str(),
+                r.otimoConhecido,
+                melhoriaIni,
+                desvioPLI,
+                gapOtimo,
+                (r.validoInicial && r.validoAG) ? "Sim" : "Nao",
+                r.caminhoAGStr.c_str());
+    }
+    fclose(fCsv);
 
     return 0;
 }

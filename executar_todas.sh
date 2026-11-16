@@ -1,10 +1,6 @@
 #!/bin/bash
 # Script para compilar e executar o Algoritmo Genetico em todas as 13 instancias ATSP
+# e gerar o arquivo consolidado resultados_tp02.csv
 
 make compila
-
-INST_DIR="instancias/Completos e Assimetricos nos Arcos"
-
-for arq in "$INST_DIR"/*.atsp; do
-    ./AG "$arq"
-done
+./AG
