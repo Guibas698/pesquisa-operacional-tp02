@@ -1,6 +1,4 @@
 # Trabalho Prático 02 — Heurística Inicial e Algoritmo Genético
-**Universidade Federal do Ceará — Campus Quixadá**  
-**QXD0181 — Pesquisa Operacional**  
 **Professor Paulo Henrique Macêdo**
 
 ---
