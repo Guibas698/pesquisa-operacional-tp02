@@ -79,7 +79,7 @@ A heurística inicial produziu rapidamente uma solução viável para as 13 inst
 
 ## 5. Uso de Inteligência Artificial
 
-O assistente de IA no VS Code e o ChatGPT foram usados como apoio para organizar as tabelas e o CSV, conferir a lógica circular do cruzamento OX e revisar os índices das operações `erase` e `insert` nas mutações. O ChatGPT também auxiliou na revisão técnica e textual deste relatório, na conferência dos resultados entre os dois trabalhos e na verificação independente da referência ótima de `p43`.
+Durante o projeto, utilizei o **Antigravity** (assistente de IA no VS Code) e o **ChatGPT**. O Antigravity foi utilizado para ajudar a corrigir bugs, gerar o código de algumas funções (que eu lia e revisava em seguida para verificar se a lógica estava correta, como no preenchimento circular do cruzamento OX e na manipulação de índices das mutações), organizar as tabelas e o arquivo CSV de resultados, além de fazer toda a transcrição e formatação deste arquivo em Markdown (`RELATORIO_E_RESULTADOS.md`) com base no relatório em `.txt` (`RELATORIO.txt`). O ChatGPT auxiliou na auditoria do código, na revisão técnica e textual do relatório, na conferência dos resultados entre os dois trabalhos e na verificação independente da referência ótima de `p43`.
 
 ---
 
