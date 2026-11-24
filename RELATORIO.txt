@@ -1,5 +1,4 @@
-TRABALHO PRÁTICO 02 — HEURÍSTICA INICIAL E ALGORITMO GENÉTICO
-Professor Paulo Henrique Macêdo
+Relatório - Trabalho Prático 02 (Algoritmo Genético)
 
 
 1. PROBLEMA E IMPLEMENTAÇÃO

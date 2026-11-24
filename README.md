@@ -1,4 +1,4 @@
-# Trabalho Prático 02 - Pesquisa Operacional (QXD0181)
+# Trabalho Prático 02 - Pesquisa Operacional
 
 Implementação da **Heurística Inicial (Vizinho Mais Próximo)** e da meta-heurística **Algoritmo Genético (AG)** em C++ para o Problema do Caminho Hamiltoniano Mínimo (PCHM) com vértices de origem ($s = 1$) e destino ($t = n$).
 

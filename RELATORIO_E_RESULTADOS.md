@@ -1,7 +1,4 @@
-# Trabalho Prático 02 — Heurística Inicial e Algoritmo Genético
-**Professor Paulo Henrique Macêdo**
-
----
+# Relatório - Trabalho Prático 02 (Algoritmo Genético)
 
 ## 1. Problema e Implementação
 
